@@ -6,7 +6,8 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
-
+// n Spring Boot 3.x + Spring Cloud 2025.x, neither annotation is necessary for Eureka registration.
+// @EnableEurekaClient is not necessary
 @SpringBootApplication
 public class InventoryServiceApplication {
 	public static void main(String[] args) {
