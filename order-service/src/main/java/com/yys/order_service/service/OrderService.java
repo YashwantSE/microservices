@@ -1,5 +1,7 @@
 package com.yys.order_service.service;
 
+import brave.Span;
+import brave.Tracer;
 import com.yys.order_service.Config.WebClientConfig;
 import com.yys.order_service.dto.InventoryResponse;
 import com.yys.order_service.dto.OrderLineItemDto;
@@ -23,7 +25,10 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final WebClient.Builder webClientBuilder;
-    public String placeOrder(OrderRequest orderRequest){
+
+    private final Tracer tracer;
+
+    public String placeOrder(OrderRequest orderRequest) {
         Order order = new Order();
         order.setOrderNumber(UUID.randomUUID().toString());
         List<OrderLineItem> orderLineItem = orderRequest.getOrderLineItemDtoList()
@@ -32,25 +37,30 @@ public class OrderService {
 
         order.setOrderLineItemList(orderLineItem);
 
-        List<String> skuCodes =  order.getOrderLineItemList().stream()
+        List<String> skuCodes = order.getOrderLineItemList().stream()
                 .map(OrderLineItem::getSkuCode)
                 .toList();
 
+        Span inventoryServiceLookup = tracer.nextSpan().name("InventoryServiceLookup");
+        try (Tracer.SpanInScope spanInScope = tracer.withSpanInScope(inventoryServiceLookup.start())) {
+            // call inventory service and place order if product is in stock
+            InventoryResponse[] inventoryResponseArray = webClientBuilder.build().get().uri("http://inventory-service/api/inventory",
+                            uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build())
+                    .retrieve()
+                    .bodyToMono(InventoryResponse[].class)  // response body is boolean
+                    .block();
 
-        // call inventory service and place order if product is in stock
-       InventoryResponse[] inventoryResponseArray = webClientBuilder.build().get().uri("http://inventory-service/api/inventory",
-                       uriBuilder -> uriBuilder.queryParam("skuCode",skuCodes).build())
-                        .retrieve()
-                         .bodyToMono(InventoryResponse[].class)  // response body is boolean
-                        .block();
+            boolean allProductInStock = Arrays.stream(inventoryResponseArray).allMatch(InventoryResponse::isInStock);
+            if (allProductInStock) {
+                orderRepository.save(order);
+                return " order Placed Successfully";
+            } else {
+                throw new IllegalArgumentException("Product is not in stock, please try again later");
+            }
 
-       boolean allProductInStock = Arrays.stream(inventoryResponseArray).allMatch(InventoryResponse::isInStock);
-       if(allProductInStock) {
-           orderRepository.save(order);
-           return " order Placed Successfully";
-       }else{
-           throw new IllegalArgumentException("Product is not in stock, please try again later");
-       }
+        } finally {
+            inventoryServiceLookup.finish();
+        }
     }
 
     private OrderLineItem maptoDto(OrderLineItemDto orderLineItemDto){

@@ -10,3 +10,4 @@ http://localhost:8761/    - eureka
 http://localhost:8082/actuator     --  tell us how many times the service is called 
 
 
+docker run -d -p 9411:9411 openzipkin/zipkin  -- zipkin docker 
